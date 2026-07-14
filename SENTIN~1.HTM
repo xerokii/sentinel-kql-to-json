@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>KQL → Sentinel JSON</title>
+<style>
+  :root{
+    --bg:#0f172a; --panel:#1e293b; --panel2:#273449; --border:#334155;
+    --text:#e2e8f0; --muted:#94a3b8; --accent:#38bdf8; --accent2:#0ea5e9;
+    --green:#22c55e; --red:#ef4444; --amber:#f59e0b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:"Segoe UI",system-ui,sans-serif;background:var(--bg);color:var(--text);line-height:1.5}
+  header{background:linear-gradient(90deg,#0369a1,#0ea5e9);padding:18px 24px;box-shadow:0 2px 10px rgba(0,0,0,.4)}
+  header h1{margin:0;font-size:20px;font-weight:600}
+  header p{margin:4px 0 0;font-size:13px;opacity:.9}
+  .wrap{display:flex;gap:20px;padding:20px;flex-wrap:wrap;align-items:flex-start}
+  .col{flex:1;min-width:420px}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:18px;margin-bottom:18px}
+  h2{font-size:15px;margin:0 0 14px;color:var(--accent);border-bottom:1px solid var(--border);padding-bottom:8px}
+  label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px;font-weight:500}
+  input,select,textarea{width:100%;background:var(--panel2);border:1px solid var(--border);border-radius:6px;color:var(--text);padding:8px 10px;font-size:13px;font-family:inherit}
+  textarea{resize:vertical;font-family:"Consolas",monospace;min-height:120px}
+  input:focus,select,textarea:focus{outline:none;border-color:var(--accent)}
+  .row{display:flex;gap:12px}
+  .row>div{flex:1}
+  .hint{font-size:11px;color:var(--muted);margin-top:3px}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+  .chip{background:var(--panel2);border:1px solid var(--border);border-radius:20px;padding:3px 6px 3px 10px;font-size:12px;display:flex;align-items:center;gap:6px}
+  .chip button{background:none;border:none;color:var(--red);cursor:pointer;font-size:14px;line-height:1;padding:0}
+  button.btn{background:var(--accent2);color:#fff;border:none;border-radius:6px;padding:9px 16px;font-size:13px;font-weight:600;cursor:pointer}
+  button.btn:hover{background:var(--accent)}
+  button.btn.sec{background:var(--panel2);border:1px solid var(--border);color:var(--text)}
+  button.btn.sec:hover{border-color:var(--accent)}
+  button.btn.danger{background:transparent;border:1px solid var(--red);color:var(--red)}
+  button.btn.danger:hover{background:var(--red);color:#fff}
+  .btnrow{display:flex;gap:10px;flex-wrap:wrap;margin-top:14px}
+  .entity-block,.tech-input{background:var(--panel2);border:1px solid var(--border);border-radius:6px;padding:10px;margin-top:8px}
+  .rule-item{background:var(--panel2);border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:10px}
+  .rule-item .meta{font-size:12px;color:var(--muted)}
+  .rule-item .name{font-weight:600;font-size:13px;color:var(--text)}
+  .badge{display:inline-block;font-size:10px;padding:2px 7px;border-radius:10px;margin-left:6px}
+  .sev-High{background:#7f1d1d;color:#fecaca}
+  .sev-Medium{background:#78350f;color:#fed7aa}
+  .sev-Low{background:#155e75;color:#a5f3fc}
+  .sev-Informational{background:#334155;color:#cbd5e1}
+  pre{background:#0b1120;border:1px solid var(--border);border-radius:8px;padding:14px;overflow:auto;font-size:12px;max-height:640px;font-family:"Consolas",monospace;white-space:pre;color:#a5f3fc}
+  details{margin-top:10px}
+  summary{cursor:pointer;font-size:13px;color:var(--accent);font-weight:600;padding:6px 0}
+  .empty{color:var(--muted);font-size:13px;font-style:italic}
+  .toast{position:fixed;bottom:20px;right:20px;background:var(--green);color:#052e16;padding:12px 18px;border-radius:8px;font-weight:600;font-size:13px;opacity:0;transform:translateY(10px);transition:.3s;pointer-events:none}
+  .toast.show{opacity:1;transform:translateY(0)}
+  .req{color:var(--red)}
+</style>
+</head>
+<body>
+<header>
+  <h1>KQL → JSON for Microsoft Sentinel</h1>
+  <p>Generate an ARM template (Scheduled analytics rules) ready to import into Sentinel. Add multiple rules and download the JSON.</p>
+</header>
+
+<div class="wrap">
+  <!-- ================= FORM ================= -->
+  <div class="col">
+    <div class="card">
+      <h2>Workspace parameters</h2>
+      <label>Workspace parameter name</label>
+      <input id="workspaceParam" value="workspace">
+      <div class="hint">This is the name of the template parameter. When importing into Sentinel you will be asked for the workspace value (Log Analytics). Usually leave it as "workspace".</div>
+      <label>API version</label>
+      <input id="apiVersion" value="2023-12-01-preview">
+    </div>
+
+    <div class="card">
+      <h2>New rule / edit</h2>
+
+      <label>Rule name (displayName) <span class="req">*</span></label>
+      <input id="displayName" placeholder="[999] My detection [DEV]">
+
+      <label>Description</label>
+      <textarea id="description" style="min-height:60px" placeholder="Describe what the rule detects..."></textarea>
+
+      <div class="row">
+        <div>
+          <label>Severity</label>
+          <select id="severity">
+            <option>High</option><option selected>Medium</option>
+            <option>Low</option><option>Informational</option>
+          </select>
+        </div>
+        <div>
+          <label>Enabled</label>
+          <select id="enabled"><option value="true" selected>Yes (enabled)</option><option value="false">No</option></select>
+        </div>
+      </div>
+
+      <label>KQL query <span class="req">*</span></label>
+      <textarea id="query" placeholder="TableName_CL&#10;| where ...&#10;| project TimeGenerated, ..."></textarea>
+      <div class="hint">Paste the query as-is. Line breaks and quotes are escaped automatically when the JSON is generated.</div>
+
+      <div class="row">
+        <div>
+          <label>Frequency (queryFrequency)</label>
+          <select id="queryFrequency">
+            <option value="PT5M">Every 5 min</option>
+            <option value="PT10M">Every 10 min</option>
+            <option value="PT30M">Every 30 min</option>
+            <option value="PT1H" selected>Every 1 hour</option>
+            <option value="PT3H">Every 3 hours</option>
+            <option value="PT12H">Every 12 hours</option>
+            <option value="P1D">Every 1 day</option>
+            <option value="__custom">Custom (ISO8601)</option>
+          </select>
+          <input id="queryFrequencyCustom" style="display:none;margin-top:6px" placeholder="e.g. PT45M">
+        </div>
+        <div>
+          <label>Data lookup period (queryPeriod)</label>
+          <select id="queryPeriod">
+            <option value="PT5M">5 min</option>
+            <option value="PT10M">10 min</option>
+            <option value="PT30M">30 min</option>
+            <option value="PT1H" selected>1 hour</option>
+            <option value="PT3H">3 hours</option>
+            <option value="PT12H">12 hours</option>
+            <option value="P1D">1 day</option>
+            <option value="P14D">14 days</option>
+            <option value="__custom">Custom (ISO8601)</option>
+          </select>
+          <input id="queryPeriodCustom" style="display:none;margin-top:6px" placeholder="e.g. PT2H">
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Trigger operator</label>
+          <select id="triggerOperator">
+            <option>GreaterThan</option><option>LessThan</option>
+            <option>Equal</option><option>NotEqual</option>
+          </select>
+        </div>
+        <div>
+          <label>Trigger threshold</label>
+          <input id="triggerThreshold" type="number" value="0">
+        </div>
+      </div>
+
+      <label>MITRE tactics</label>
+      <div class="row">
+        <div>
+          <select id="tacticSelect">
+            <option value="">-- choose a tactic --</option>
+            <option>Reconnaissance</option><option>ResourceDevelopment</option>
+            <option>InitialAccess</option><option>Execution</option>
+            <option>Persistence</option><option>PrivilegeEscalation</option>
+            <option>DefenseEvasion</option><option>CredentialAccess</option>
+            <option>Discovery</option><option>LateralMovement</option>
+            <option>Collection</option><option>CommandAndControl</option>
+            <option>Exfiltration</option><option>Impact</option>
+            <option>ImpairProcessControl</option><option>InhibitResponseFunction</option>
+          </select>
+        </div>
+        <div style="flex:0 0 auto"><button class="btn sec" onclick="addTactic()">+ Add</button></div>
+      </div>
+      <div class="chips" id="tacticChips"></div>
+
+      <label>MITRE techniques</label>
+      <div class="row">
+        <div><input id="techInput" placeholder="e.g. T1190 (one or more, comma-separated)"></div>
+        <div style="flex:0 0 auto"><button class="btn sec" onclick="addTechnique()">+ Add</button></div>
+      </div>
+      <div class="chips" id="techChips"></div>
+      <div class="hint">Sub-techniques (format Txxxx.xxx) are automatically placed under "subTechniques".</div>
+
+      <details>
+        <summary>Incident configuration (optional)</summary>
+        <div class="tech-input">
+          <div class="row">
+            <div>
+              <label>Create incident</label>
+              <select id="createIncident"><option value="true" selected>Yes</option><option value="false">No</option></select>
+            </div>
+            <div>
+              <label>Group alerts (grouping)</label>
+              <select id="groupingEnabled"><option value="true">Yes</option><option value="false" selected>No</option></select>
+            </div>
+          </div>
+          <div class="row">
+            <div>
+              <label>Matching method</label>
+              <select id="matchingMethod"><option>AllEntities</option><option>AnyAlert</option><option>Selected</option></select>
+            </div>
+            <div>
+              <label>Lookback</label>
+              <input id="lookbackDuration" value="PT5H">
+            </div>
+          </div>
+          <label>Reopen closed incidents</label>
+          <select id="reopenClosed"><option value="false" selected>No</option><option value="true">Yes</option></select>
+        </div>
+      </details>
+
+      <details>
+        <summary>Suppression (optional)</summary>
+        <div class="tech-input">
+          <div class="row">
+            <div>
+              <label>Suppression enabled</label>
+              <select id="suppressionEnabled"><option value="false" selected>No</option><option value="true">Yes</option></select>
+            </div>
+            <div>
+              <label>Suppression duration</label>
+              <input id="suppressionDuration" value="PT5H">
+            </div>
+          </div>
+          <label>Event grouping (aggregationKind)</label>
+          <select id="aggregationKind"><option>SingleAlert</option><option>AlertPerResult</option></select>
+        </div>
+      </details>
+
+      <details>
+        <summary>Entity mappings (optional)</summary>
+        <div id="entityContainer"></div>
+        <button class="btn sec" style="margin-top:8px" onclick="addEntityRow()">+ Add entity</button>
+        <div class="hint">entityType: Account, IP, URL, Host, FileHash, Process... / identifier: Name, Address, Url... / columnName: a column from your query.</div>
+      </details>
+
+      <div class="btnrow">
+        <button class="btn" id="addBtn" onclick="saveRule()">➕ Add rule to JSON</button>
+        <button class="btn sec" onclick="clearForm()">Clear form</button>
+        <button class="btn sec" id="cancelEditBtn" style="display:none" onclick="cancelEdit()">Cancel edit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= OUTPUT ================= -->
+  <div class="col">
+    <div class="card">
+      <h2>Added rules (<span id="ruleCount">0</span>)</h2>
+      <div id="ruleList"><p class="empty">No rules added yet.</p></div>
+    </div>
+
+    <div class="card">
+      <h2>Generated JSON</h2>
+      <div class="btnrow" style="margin-top:0;margin-bottom:12px">
+        <button class="btn" onclick="downloadJson()">⬇ Download JSON</button>
+        <button class="btn sec" onclick="copyJson()">📋 Copy</button>
+      </div>
+      <pre id="jsonOut">{}</pre>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let rules = [];
+let tactics = [];
+let techniques = [];
+let entityRows = [];
+let editIndex = -1;
+
+// ---------- MITRE chips ----------
+function addTactic(){
+  const v = document.getElementById('tacticSelect').value;
+  if(v && !tactics.includes(v)){ tactics.push(v); renderChips(); }
+}
+function addTechnique(){
+  const raw = document.getElementById('techInput').value;
+  raw.split(',').map(s=>s.trim().toUpperCase()).filter(Boolean).forEach(t=>{
+    if(!techniques.includes(t)) techniques.push(t);
+  });
+  document.getElementById('techInput').value='';
+  renderChips();
+}
+function renderChips(){
+  document.getElementById('tacticChips').innerHTML = tactics.map((t,i)=>
+    `<span class="chip">${t}<button onclick="tactics.splice(${i},1);renderChips()">×</button></span>`).join('');
+  document.getElementById('techChips').innerHTML = techniques.map((t,i)=>
+    `<span class="chip">${t}<button onclick="techniques.splice(${i},1);renderChips()">×</button></span>`).join('');
+}
+
+// ---------- Entity mappings ----------
+function addEntityRow(entityType='Account', identifier='Name', columnName=''){
+  const id = Date.now()+Math.random();
+  entityRows.push({id, entityType, identifier, columnName});
+  renderEntities();
+}
+function renderEntities(){
+  const c = document.getElementById('entityContainer');
+  c.innerHTML = entityRows.map(r=>`
+    <div class="entity-block">
+      <div class="row">
+        <div>
+          <label>entityType</label>
+          <select onchange="updEntity(${r.id},'entityType',this.value)">
+            ${['Account','IP','URL','Host','FileHash','Process','File','DNS','Mailbox','CloudApplication','AzureResource'].map(e=>`<option ${e===r.entityType?'selected':''}>${e}</option>`).join('')}
+          </select>
+        </div>
+        <div>
+          <label>identifier</label>
+          <input value="${r.identifier}" onchange="updEntity(${r.id},'identifier',this.value)">
+        </div>
+        <div>
+          <label>columnName</label>
+          <input value="${r.columnName}" onchange="updEntity(${r.id},'columnName',this.value)">
+        </div>
+        <div style="flex:0 0 auto;display:flex;align-items:flex-end">
+          <button class="btn danger" onclick="entityRows=entityRows.filter(x=>x.id!==${r.id});renderEntities()">✕</button>
+        </div>
+      </div>
+    </div>`).join('');
+}
+function updEntity(id,field,val){
+  const r = entityRows.find(x=>x.id===id); if(r) r[field]=val;
+}
+
+// ---------- custom duration toggles ----------
+['queryFrequency','queryPeriod'].forEach(base=>{
+  document.getElementById(base).addEventListener('change',function(){
+    document.getElementById(base+'Custom').style.display = this.value==='__custom'?'block':'none';
+  });
+});
+function getDur(base){
+  const sel = document.getElementById(base).value;
+  return sel==='__custom' ? document.getElementById(base+'Custom').value.trim() : sel;
+}
+
+// ---------- GUID ----------
+function guid(){
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
+    const r=Math.random()*16|0, v=c==='x'?r:(r&0x3|0x8); return v.toString(16);
+  });
+}
+
+// ---------- Save / build rule object ----------
+function saveRule(){
+  const displayName = document.getElementById('displayName').value.trim();
+  const query = document.getElementById('query').value.trim();
+  if(!displayName){ toast('Rule name (displayName) is required', true); return; }
+  if(!query){ toast('KQL query is required', true); return; }
+
+  // split techniques vs subtechniques
+  const techs = techniques.filter(t=>!t.includes('.'));
+  const subTechs = techniques.filter(t=>t.includes('.'));
+
+  const grouping = document.getElementById('groupingEnabled').value==='true';
+  const rule = {
+    guid: editIndex>=0 ? rules[editIndex].guid : guid(),
+    displayName,
+    description: document.getElementById('description').value.trim(),
+    severity: document.getElementById('severity').value,
+    enabled: document.getElementById('enabled').value==='true',
+    query,
+    queryFrequency: getDur('queryFrequency'),
+    queryPeriod: getDur('queryPeriod'),
+    triggerOperator: document.getElementById('triggerOperator').value,
+    triggerThreshold: parseInt(document.getElementById('triggerThreshold').value||'0',10),
+    suppressionDuration: document.getElementById('suppressionDuration').value.trim()||'PT5H',
+    suppressionEnabled: document.getElementById('suppressionEnabled').value==='true',
+    tactics: [...tactics],
+    techniques: techs,
+    subTechniques: subTechs,
+    createIncident: document.getElementById('createIncident').value==='true',
+    groupingEnabled: grouping,
+    reopenClosed: document.getElementById('reopenClosed').value==='true',
+    lookbackDuration: document.getElementById('lookbackDuration').value.trim()||'PT5H',
+    matchingMethod: document.getElementById('matchingMethod').value,
+    aggregationKind: document.getElementById('aggregationKind').value,
+    entities: entityRows.filter(e=>e.columnName.trim()).map(e=>({entityType:e.entityType,identifier:e.identifier,columnName:e.columnName.trim()}))
+  };
+
+  if(editIndex>=0){ rules[editIndex]=rule; editIndex=-1; toast('Rule updated'); }
+  else { rules.push(rule); toast('Rule added'); }
+
+  clearForm();
+  renderRules();
+  buildJson();
+}
+
+// ---------- Rule list ----------
+function renderRules(){
+  document.getElementById('ruleCount').textContent = rules.length;
+  const list = document.getElementById('ruleList');
+  if(!rules.length){ list.innerHTML='<p class="empty">No rules added yet.</p>'; return; }
+  list.innerHTML = rules.map((r,i)=>`
+    <div class="rule-item">
+      <div>
+        <div class="name">${escapeHtml(r.displayName)}<span class="badge sev-${r.severity}">${r.severity}</span></div>
+        <div class="meta">${r.queryFrequency} / ${r.queryPeriod} · ${r.tactics.length} tactics · ${r.techniques.length+r.subTechniques.length} techniques</div>
+      </div>
+      <div style="display:flex;gap:6px">
+        <button class="btn sec" onclick="editRule(${i})">Edit</button>
+        <button class="btn danger" onclick="delRule(${i})">Delete</button>
+      </div>
+    </div>`).join('');
+}
+function delRule(i){ rules.splice(i,1); renderRules(); buildJson(); toast('Rule deleted'); }
+function editRule(i){
+  const r = rules[i]; editIndex=i;
+  document.getElementById('displayName').value=r.displayName;
+  document.getElementById('description').value=r.description;
+  document.getElementById('severity').value=r.severity;
+  document.getElementById('enabled').value=String(r.enabled);
+  document.getElementById('query').value=r.query;
+  setDur('queryFrequency',r.queryFrequency);
+  setDur('queryPeriod',r.queryPeriod);
+  document.getElementById('triggerOperator').value=r.triggerOperator;
+  document.getElementById('triggerThreshold').value=r.triggerThreshold;
+  document.getElementById('suppressionDuration').value=r.suppressionDuration;
+  document.getElementById('suppressionEnabled').value=String(r.suppressionEnabled);
+  document.getElementById('createIncident').value=String(r.createIncident);
+  document.getElementById('groupingEnabled').value=String(r.groupingEnabled);
+  document.getElementById('reopenClosed').value=String(r.reopenClosed);
+  document.getElementById('lookbackDuration').value=r.lookbackDuration;
+  document.getElementById('matchingMethod').value=r.matchingMethod;
+  document.getElementById('aggregationKind').value=r.aggregationKind;
+  tactics=[...r.tactics]; techniques=[...r.techniques,...r.subTechniques]; renderChips();
+  entityRows = r.entities.map(e=>({id:Date.now()+Math.random(),...e})); renderEntities();
+  document.getElementById('addBtn').textContent='💾 Save changes';
+  document.getElementById('cancelEditBtn').style.display='inline-block';
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function cancelEdit(){ editIndex=-1; clearForm(); }
+function setDur(base,val){
+  const sel = document.getElementById(base);
+  if([...sel.options].some(o=>o.value===val)){ sel.value=val; document.getElementById(base+'Custom').style.display='none'; }
+  else { sel.value='__custom'; const c=document.getElementById(base+'Custom'); c.style.display='block'; c.value=val; }
+}
+
+function clearForm(){
+  ['displayName','description','query','techInput'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('triggerThreshold').value='0';
+  tactics=[]; techniques=[]; entityRows=[]; renderChips(); renderEntities();
+  document.getElementById('addBtn').textContent='➕ Add rule to JSON';
+  document.getElementById('cancelEditBtn').style.display='none';
+  editIndex=-1;
+}
+
+// ---------- Build ARM template ----------
+function buildJson(){
+  const ws = document.getElementById('workspaceParam').value.trim()||'workspace';
+  const api = document.getElementById('apiVersion').value.trim()||'2023-12-01-preview';
+
+  const resources = rules.map(r=>{
+    const props = {
+      displayName: r.displayName,
+      description: r.description,
+      severity: r.severity,
+      enabled: r.enabled,
+      query: r.query,
+      queryFrequency: r.queryFrequency,
+      queryPeriod: r.queryPeriod,
+      triggerOperator: r.triggerOperator,
+      triggerThreshold: r.triggerThreshold,
+      suppressionDuration: r.suppressionDuration,
+      suppressionEnabled: r.suppressionEnabled,
+      startTimeUtc: null,
+      tactics: r.tactics,
+      techniques: r.techniques,
+      subTechniques: r.subTechniques,
+      alertRuleTemplateName: null,
+      incidentConfiguration: {
+        createIncident: r.createIncident,
+        groupingConfiguration: {
+          enabled: r.groupingEnabled,
+          reopenClosedIncident: r.reopenClosed,
+          lookbackDuration: r.lookbackDuration,
+          matchingMethod: r.matchingMethod,
+          groupByEntities: [],
+          groupByAlertDetails: [],
+          groupByCustomDetails: []
+        }
+      },
+      eventGroupingSettings: { aggregationKind: r.aggregationKind },
+      alertDetailsOverride: null,
+      customDetails: null,
+      entityMappings: r.entities.length ? groupEntities(r.entities) : null,
+      sentinelEntitiesMappings: null,
+      templateVersion: null
+    };
+    return {
+      id: `[concat(resourceId('Microsoft.OperationalInsights/workspaces/providers', parameters('${ws}'), 'Microsoft.SecurityInsights'),'/alertRules/${r.guid}')]`,
+      name: `[concat(parameters('${ws}'),'/Microsoft.SecurityInsights/${r.guid}')]`,
+      type: "Microsoft.OperationalInsights/workspaces/providers/alertRules",
+      kind: "Scheduled",
+      apiVersion: api,
+      properties: props
+    };
+  });
+
+  const template = {
+    "$schema":"https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion":"1.0.0.0",
+    "parameters":{ [ws]:{ "type":"String" } },
+    "resources":resources
+  };
+  document.getElementById('jsonOut').textContent = JSON.stringify(template,null,4);
+}
+function groupEntities(entities){
+  const map = {};
+  entities.forEach(e=>{
+    if(!map[e.entityType]) map[e.entityType]={entityType:e.entityType,fieldMappings:[]};
+    map[e.entityType].fieldMappings.push({identifier:e.identifier,columnName:e.columnName});
+  });
+  return Object.values(map);
+}
+
+// ---------- Download / copy ----------
+function downloadJson(){
+  if(!rules.length){ toast('Add at least one rule', true); return; }
+  const blob = new Blob([document.getElementById('jsonOut').textContent],{type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'Azure_Sentinel_analytics_rules.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  toast('JSON downloaded');
+}
+function copyJson(){
+  navigator.clipboard.writeText(document.getElementById('jsonOut').textContent)
+    .then(()=>toast('Copied to clipboard'))
+    .catch(()=>toast('Could not copy', true));
+}
+
+// ---------- helpers ----------
+function escapeHtml(s){return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
+let toastTimer;
+function toast(msg,err){
+  const t=document.getElementById('toast');
+  t.textContent=msg; t.style.background=err?'#ef4444':'#22c55e'; t.style.color=err?'#fff':'#052e16';
+  t.classList.add('show'); clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>t.classList.remove('show'),2200);
+}
+['workspaceParam','apiVersion'].forEach(id=>document.getElementById(id).addEventListener('input',buildJson));
+
+buildJson();
+</script>
+</body>
+</html>
